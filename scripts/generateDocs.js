@@ -134,7 +134,7 @@ function generateNavSearchResult(fileFullName) {
 /**
  * @param {string} treeViewDir
  */
-async function processTreeViewLayer(treeViewDir) {
+async function processTreeViewLayer(treeViewDir, titles) {
     const is_specs_dir = path.basename(treeViewDir) == "specifications";
     var dirents = await fs.readdir(treeViewDir, { encoding: 'utf-8', withFileTypes: true });
     dirents.sort((a, b) => {
@@ -166,6 +166,7 @@ async function processTreeViewLayer(treeViewDir) {
             const matches = lines[0].match(/^#+ +(.*)/);
             if (matches) {
                 html.push(matches[1].replace(/`(.*)`/g, '<code>$1</code>'));
+                titles[fullName] = matches[1];
             } else {
                 html.push(convertToReadableFormat(filename));
             }
@@ -175,6 +176,7 @@ async function processTreeViewLayer(treeViewDir) {
     }
 
     try {
+        // exists test
         await (await fs.open(treeViewDir + ".md")).close();
         await handleFile(path.basename(treeViewDir) + ".md", treeViewDir + ".md");
     } catch (e) { }
@@ -194,7 +196,7 @@ async function processTreeViewLayer(treeViewDir) {
             html.push(convertToReadableFormat(file.name));
             html.push("</button></li>\n");
             html.push('<ul class="standard-padding collapsable">\n');
-            html.push(await processTreeViewLayer(fullName));
+            html.push(await processTreeViewLayer(fullName, titles));
             html.push("</ul>\n");
         } else if (file.isFile()) {
             if (!file.name.endsWith(".md")) {
@@ -216,8 +218,8 @@ async function processTreeViewLayer(treeViewDir) {
 /**
  * @param {string} treeViewDir
  */
-async function generateTreeView(treeViewDir) {
-    return "<ul class=docs-navigation>" + await processTreeViewLayer(treeViewDir) + "</ul>\n";
+async function generateTreeView(treeViewDir, titles) {
+    return "<ul class=docs-navigation>" + await processTreeViewLayer(treeViewDir, titles) + "</ul>\n";
 }
 
 function callshowdown(data, currentPath) {
@@ -250,12 +252,14 @@ const templatesDir = rootDir + "/templates"
 const outDocsDir = destDir + rootDocsDomain + 'docs';
 
 async function main() {
-    const navpanehtml = await generateTreeView(sourceDir);
+    var titles = {};
+    const navpanehtml = await generateTreeView(sourceDir, titles);
     await fs.mkdir(outDocsDir, { recursive: true });
 
     const template = await fs.readFile(templatesDir + "/docpage.template.html", 'utf-8');
     const footertemplate = await fs.readFile(templatesDir + "/footer.html", 'utf-8');
     const navbartemplate = await fs.readFile(templatesDir + "/navbar.html", 'utf-8');
+    const commonhead = await fs.readFile(templatesDir + "/commonhead.html", 'utf-8');
 
     async function generateForFile(relSourcePath) {
         const markdownFile = sourceDir + relSourcePath;
@@ -278,10 +282,14 @@ async function main() {
             Nav: generateNavSearchResult(markdownFile)
         });
 
+        const title = titles[markdownFile] || "Documentation";
+
         var view = {
             footer: footertemplate,
             navbar: navbartemplate,
-            docsnav: navpanehtml
+            docsnav: navpanehtml,
+            commonhead: commonhead,
+            title: title,
         };
 
         view.body = callshowdown(file, markdownFile);
