@@ -15,6 +15,7 @@ var wording = {
     },
 };
 var allPackages, currentPackages, cancellationToken, hiddenCount, selectedPackage;
+var allPackagesFuse;
 var triplets = [
     'arm-uwp',
     'arm64-windows',
@@ -61,6 +62,16 @@ $.getJSON('../output.json', function (responseObject) {
     allPackages = responseObject.Source;
     currentPackages = allPackages;
     document.getElementById('pkg-search').value = query;
+    var options = {
+        findAllMatches: true,
+        ignoreLocation: true,
+        threshold: 0.1,
+        maxPatternLength: 50,
+        minMatchCharLength: 1,
+        keys: ['Name', 'Description', 'Files'],
+    };
+    allPackagesFuse = new Fuse(allPackages, options);
+
     searchAndRenderPackages();
 });
 var renderModalDescription = function (fullDesc) {
@@ -96,57 +107,57 @@ var renderCardDescription = function (fullDesc) {
     return descriptionDiv;
 };
 var renderCompatibility = function (pkg, packageDiv) {
-  var compatRowDiv = document.createElement('div');
-  compatRowDiv.className = 'package-compatibility';
+    var compatRowDiv = document.createElement('div');
+    compatRowDiv.className = 'package-compatibility';
 
-  // Compatibility text
-  var compatDiv = document.createElement('span');
-  compatDiv.className = 'package-compatibility-text';
-  compatDiv.textContent = wording[lang]['compat'];
-  compatRowDiv.appendChild(compatDiv);
+    // Compatibility text
+    var compatDiv = document.createElement('span');
+    compatDiv.className = 'package-compatibility-text';
+    compatDiv.textContent = wording[lang]['compat'];
+    compatRowDiv.appendChild(compatDiv);
 
-  // Display processor statuses
-  let statusDiv = document.createElement('div');
-  statusDiv.className = 'processor-status';
+    // Display processor statuses
+    let statusDiv = document.createElement('div');
+    statusDiv.className = 'processor-status';
 
-  let compatRowFrag = document.createDocumentFragment();
-  for (var t of triplets) {
-    var procStatusDiv = statusDiv.cloneNode(true);
-    var status = pkg[t];
-    var simplifiedStatus = status === 'pass' || status === 'fail' ? status : 'unknown';
-    procStatusDiv.classList.add(simplifiedStatus);
+    let compatRowFrag = document.createDocumentFragment();
+    for (var t of triplets) {
+        var procStatusDiv = statusDiv.cloneNode(true);
+        var status = pkg[t];
+        var simplifiedStatus = status === 'pass' || status === 'fail' ? status : 'unknown';
+        procStatusDiv.classList.add(simplifiedStatus);
 
-    // hide card if it doesn't pass the compatibility filter
-    if (packageDiv && simplifiedStatus === 'fail' && compatFilter.indexOf(t) !== -1) {
-      packageDiv.classList.add('hide');
+        // hide card if it doesn't pass the compatibility filter
+        if (packageDiv && simplifiedStatus === 'fail' && compatFilter.indexOf(t) !== -1) {
+            packageDiv.classList.add('hide');
+        }
+
+        let statusIcon;
+        let alt_text;
+        switch (simplifiedStatus) {
+            case 'pass':
+                statusIcon = '✓';
+                alt_text = 'Compatible with ' + t;
+                break;
+            case 'fail':
+                statusIcon = '!';
+                alt_text = 'Not Compatible with ' + t;
+                break;
+            default:
+                statusIcon = '?';
+                alt_text = 'Compatibility unknown on ' + t;
+        }
+
+        procStatusDiv.textContent = statusIcon + ' ' + t;
+        let spanTip = document.createElement('span');
+
+        spanTip.textContent = alt_text;
+        procStatusDiv.appendChild(spanTip);
+        procStatusDiv.classList.add('tip');
+        compatRowFrag.appendChild(procStatusDiv);
     }
-
-    let statusIcon;
-    let alt_text;
-    switch (simplifiedStatus) {
-      case 'pass':
-        statusIcon = '✓';
-        alt_text = 'Compatible with ' + t;
-        break;
-      case 'fail':
-        statusIcon = '!';
-        alt_text = 'Not Compatible with ' + t;
-        break;
-      default:
-        statusIcon = '?';
-        alt_text = 'Compatibility unknown on ' + t;
-    }
-
-    procStatusDiv.textContent = statusIcon + ' ' + t;
-    let spanTip = document.createElement('span');
-
-    spanTip.textContent = alt_text;
-    procStatusDiv.appendChild(spanTip);
-    procStatusDiv.classList.add('tip');
-    compatRowFrag.appendChild(procStatusDiv);
-  }
-  compatRowDiv.appendChild(compatRowFrag);
-  return compatRowDiv;
+    compatRowDiv.appendChild(compatRowFrag);
+    return compatRowDiv;
 };
 var renderCompability = function (pkg, packageDiv) {
     var compatRowDiv = document.createElement('div');
@@ -438,23 +449,13 @@ function clearPackages() {
     }
 }
 function searchPackages(query) {
-    var options = {
-        findAllMatches: true,
-        ignoreLocation: true,
-        threshold: 0.1,
-        maxPatternLength: 50,
-        minMatchCharLength: 1,
-        keys: ['Name', 'Description', 'Files'],
-    };
-    var fuse = new Fuse(allPackages, options);
-    var searchResult = fuse.search(query);
+    var searchResult = allPackagesFuse.search(query);
     var newPackagesList = [];
     for (var _i = 0, searchResult_1 = searchResult; _i < searchResult_1.length; _i++) {
         var rslt = searchResult_1[_i];
         newPackagesList.push(rslt.item);
     }
     currentPackages = newPackagesList;
-    currentPackages.sort(searchRank)
 }
 
 var timeoutID = undefined;
@@ -462,21 +463,21 @@ function handlePackageInput() {
     if(timeoutID) {
         clearTimeout(timeoutID)
     }
-    timeoutID = setTimeout(searchAndRenderPackages, 500);
+    timeoutID = setTimeout(searchAndRenderPackages, 50);
 }
 
 function searchAndRenderPackages() {
-    query = document.getElementById('pkg-search').value.trim();
-    if (query === '') {
-        currentPackages = allPackages;
+    if (typeof allPackagesFuse !== 'undefined') {
+        query = document.getElementById('pkg-search').value.trim();
+        if (query === '') {
+            currentPackages = allPackages;
+        }
+        else {
+            searchPackages(query);
+            sortPackages();
+        }
+        renderPackages();
     }
-    else {
-        searchPackages(query);
-    }
-    if (document.getElementById('sortBtn').value !== 'Best Match') {
-        sortPackages();
-    }
-    renderPackages();
     timeoutID = undefined;
 }
 var sortAlphabetical = function (a, b) {
@@ -503,37 +504,36 @@ function searchRank(a, b) {
         }
 
         // Prefix match
-        if(pkg.Name.indexOf(query) == 0) {
+        else if (pkg.Name.indexOf(query) == 0) {
             score += 500;
         }
 
         // Substring
-        if(pkg.Name.indexOf(query) != -1) {
+        else if (pkg.Name.indexOf(query) != -1) {
             score += 100;
         }
 
         //Description
-        if(pkg.Description && pkg.Description.indexOf(query) != -1) {
+        else if (pkg.Description && pkg.Description.indexOf(query) != -1) {
             score += 50;
         }
         scores[i] = score;
     }
-    return scores[1] - scores[0];
+    var s = sortStars(a, b);
+    return scores[1] - scores[0] + (s > 500 ? 500 : s < -500 ? -500 : 0);
 }
 
 function sortPackages() {
     var val = document.getElementById('sortBtn').value;
     switch (val) {
         case 'Best Match':
-            searchAndRenderPackages();
+            currentPackages.sort(searchRank);
             break;
         case 'Alphabetical':
             currentPackages.sort(sortAlphabetical);
-            renderPackages();
             break;
         case 'GitHub Stars':
             currentPackages.sort(sortStars);
-            renderPackages();
             break;
     }
 }
